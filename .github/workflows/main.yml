@@ -1,0 +1,61 @@
+name: RDP
+
+on:
+  workflow_dispatch:
+
+jobs:
+  secure-rdp:
+    runs-on: windows-2025
+    timeout-minutes: 360
+
+    steps:
+      - name: Enable RDP
+        run: |
+          Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' `
+            -Name "fDenyTSConnections" -Value 0 -Force
+
+          Enable-NetFirewallRule -DisplayGroup "Remote Desktop"
+
+          Restart-Service -Name TermService -Force
+
+      - name: Create RDP User
+        run: |
+          net user RDP ${{ secrets.RDP_PASS }} /add
+          net localgroup administrators RDP /add
+          net localgroup "Remote Desktop Users" RDP /add
+
+      - name: Install Tailscale
+        run: |
+          $url = "https://pkgs.tailscale.com/stable/tailscale-setup-latest-amd64.msi"
+          $path = "$env:TEMP\tailscale.msi"
+          Invoke-WebRequest $url -OutFile $path
+          Start-Process msiexec.exe -ArgumentList "/i `"$path`" /quiet /norestart" -Wait
+          Remove-Item $path -Force
+
+      - name: Connect Tailscale
+        run: |
+          & "$env:ProgramFiles\Tailscale\tailscale.exe" up --authkey=${{ secrets.TAILSCALE_AUTH_KEY }} --hostname=gh-win11
+
+          $ip = $null
+          for ($i=0; $i -lt 10; $i++) {
+            $ip = & "$env:ProgramFiles\Tailscale\tailscale.exe" ip -4
+            if ($ip) { break }
+            Start-Sleep 5
+          }
+
+          if (-not $ip) { exit 1 }
+          echo "TS_IP=$ip" >> $env:GITHUB_ENV
+
+      - name: Show RDP Info
+        run: |
+          Write-Host "======================"
+          Write-Host "RDP ADDRESS: $env:TS_IP"
+          Write-Host "USERNAME: RDP"
+          Write-Host "PASSWORD: (your secret)"
+          Write-Host "======================"
+
+      - name: Keep Alive
+        run: |
+          while ($true) {
+            Start-Sleep 300
+          }
