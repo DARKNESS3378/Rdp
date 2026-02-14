@@ -20,8 +20,15 @@ jobs:
         run: |
           net user RDP /add
 
-          Add-Type -AssemblyName System.Web
-          $password = [System.Web.Security.Membership]::GeneratePassword(16,4)
+          function New-StrongPassword {
+            $upper = 65..90 | Get-Random -Count 4 | ForEach-Object {[char]$_}
+            $lower = 97..122 | Get-Random -Count 4 | ForEach-Object {[char]$_}
+            $num   = 48..57 | Get-Random -Count 4 | ForEach-Object {[char]$_}
+            $sym   = (33..47 + 58..64 + 91..96 + 123..126) | Get-Random -Count 4 | ForEach-Object {[char]$_}
+            ($upper + $lower + $num + $sym | Get-Random -Count 16) -join ""
+          }
+
+          $password = New-StrongPassword
 
           net user RDP $password
           net localgroup administrators RDP /add
