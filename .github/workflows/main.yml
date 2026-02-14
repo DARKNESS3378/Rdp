@@ -18,8 +18,12 @@ jobs:
 
           Restart-Service -Name TermService -Force
 
-      - name: Create RDP User
+      - name: Create RDP User (Policy Fix)
         run: |
+          net accounts /minpwlen:6
+          net accounts /maxpwage:unlimited
+          net accounts /complexity:disabled
+
           net user RDP ${{ secrets.RDP_PASS }} /add
           net localgroup administrators RDP /add
           net localgroup "Remote Desktop Users" RDP /add
