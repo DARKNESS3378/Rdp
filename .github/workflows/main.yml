@@ -17,8 +17,7 @@ jobs:
           Enable-NetFirewallRule -DisplayGroup "Remote Desktop"
 
           Restart-Service -Name TermService -Force
-
-      - name: Create RDP User (Policy Fix)
+          
         - name: Create RDP User with Secure Password  
     run: |  
       Add-Type -AssemblyName System.Security  
