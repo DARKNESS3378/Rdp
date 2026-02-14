@@ -2,10 +2,12 @@ name: RDP
 
 on:
   workflow_dispatch:
+  schedule:
+    - cron: "0 */5 * * *"   # auto restart every 5 hours
 
 jobs:
   secure-rdp:
-    runs-on: windows-2025
+    runs-on: windows-latest
     timeout-minutes: 360
 
     steps:
@@ -15,26 +17,57 @@ jobs:
             -Name "fDenyTSConnections" -Value 0 -Force
 
           Enable-NetFirewallRule -DisplayGroup "Remote Desktop"
-
           Restart-Service -Name TermService -Force
-          
-        - name: Create RDP User with Secure Password  
-    run: |  
-      Add-Type -AssemblyName System.Security  
-      $charSet = @{  
-          Upper   = [char[]](65..90)      # A-Z  
-          Lower   = [char[]](97..122)     # a-z  
-          Number  = [char[]](48..57)      # 0-9  
-          Special = ([char[]](33..47) + [char[]](58..64) +  
-                     [char[]](91..96) + [char[]](123..126)) # Special characters  
-      }  
-      $rawPassword = @()  
-      $rawPassword += $charSet.Upper | Get-Random -Count 4  
-      $rawPassword += $charSet.Lower | Get-Random -Count 4  
-      $rawPassword += $charSet.Number | Get-Random -Count 4  
-      $rawPassword += $charSet.Special | Get-Random -Count 4  
-      $password = -join ($rawPassword | Sort-Object { Get-Random })  
-      $securePass = ConvertTo-SecureString $password -AsPlainText -Force  
+
+      - name: Create RDP User (Auto Strong Password)
+        run: |
+          net user RDP /add
+
+          Add-Type -AssemblyName System.Web
+          $password = [System.Web.Security.Membership]::GeneratePassword(16,4)
+
+          net user RDP $password
+          net localgroup administrators RDP /add
+          net localgroup "Remote Desktop Users" RDP /add
+
+          echo "RDP_USER=RDP" >> $env:GITHUB_ENV
+          echo "RDP_PASS=$password" >> $env:GITHUB_ENV
+
+      - name: Install Tailscale
+        run: |
+          $url = "https://pkgs.tailscale.com/stable/tailscale-setup-latest-amd64.msi"
+          $path = "$env:TEMP\tailscale.msi"
+          Invoke-WebRequest $url -OutFile $path
+          Start-Process msiexec.exe -ArgumentList "/i `"$path`" /quiet /norestart" -Wait
+          Remove-Item $path -Force
+
+      - name: Connect Tailscale
+        run: |
+          & "$env:ProgramFiles\Tailscale\tailscale.exe" up --authkey=${{ secrets.TAILSCALE_AUTH_KEY }} --hostname=gh-win11
+
+          $ip = $null
+          for ($i=0; $i -lt 10; $i++) {
+            $ip = & "$env:ProgramFiles\Tailscale\tailscale.exe" ip -4
+            if ($ip) { break }
+            Start-Sleep 5
+          }
+
+          if (-not $ip) { exit 1 }
+          echo "TS_IP=$ip" >> $env:GITHUB_ENV
+
+      - name: Show RDP Info
+        run: |
+          Write-Host "======================"
+          Write-Host "RDP ADDRESS: $env:TS_IP"
+          Write-Host "USERNAME: $env:RDP_USER"
+          Write-Host "PASSWORD: $env:RDP_PASS"
+          Write-Host "======================"
+
+      - name: Keep Alive
+        run: |
+          while ($true) {
+            Start-Sleep 300
+          }      $securePass = ConvertTo-SecureString $password -AsPlainText -Force  
       New-LocalUser -Name "RDP" -Password $securePass -AccountNeverExpires  
       Add-LocalGroupMember -Group "Administrators" -Member "RDP"  
       Add-LocalGroupMember -Group "Remote Desktop Users" -Member "RDP"  
